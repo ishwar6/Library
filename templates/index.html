@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Library</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        padding: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1 class="mb-4">Library</h1>
+
+      <!-- Auth Buttons -->
+      <div id="auth-buttons">
+        <button id="show-login-btn" class="btn btn-primary">Login</button>
+        <button id="show-register-btn" class="btn btn-success">Register</button>
+      </div>
+
+      <!-- Login Form -->
+      <div id="login-form-container" class="d-none">
+        <h2>Login</h2>
+        <div
+          id="login-errors"
+          class="alert alert-danger d-none"
+          role="alert"
+        ></div>
+        <form id="login-form">
+          <div class="mb-3">
+            <label for="login-username" class="form-label">Username</label>
+            <input
+              type="text"
+              class="form-control"
+              id="login-username"
+              required
+            />
+            <div class="invalid-feedback" id="login-username-error"></div>
+          </div>
+          <div class="mb-3">
+            <label for="login-password" class="form-label">Password</label>
+            <input
+              type="password"
+              class="form-control"
+              id="login-password"
+              required
+            />
+            <div class="invalid-feedback" id="login-password-error"></div>
+          </div>
+          <button type="submit" class="btn btn-primary">Login</button>
+          <button type="button" id="cancel-login-btn" class="btn btn-secondary">
+            Cancel
+          </button>
+        </form>
+      </div>
+
+      <!-- Register Form -->
+      <div id="register-form-container" class="d-none">
+        <h2>Register</h2>
+        <div
+          id="register-errors"
+          class="alert alert-danger d-none"
+          role="alert"
+        ></div>
+        <form id="register-form">
+          <div class="mb-3">
+            <label for="register-username" class="form-label">Username</label>
+            <input
+              type="text"
+              class="form-control"
+              id="register-username"
+              required
+            />
+            <div class="invalid-feedback" id="register-username-error"></div>
+          </div>
+          <div class="mb-3">
+            <label for="register-password" class="form-label">Password</label>
+            <input
+              type="password"
+              class="form-control"
+              id="register-password"
+              required
+              minlength="8"
+            />
+            <small class="form-text text-muted"
+              >Password must be at least 8 characters long.</small
+            >
+            <div class="invalid-feedback" id="register-password-error"></div>
+          </div>
+          <div class="mb-3">
+            <label for="register-email" class="form-label">Email</label>
+            <input
+              type="email"
+              class="form-control"
+              id="register-email"
+              required
+            />
+            <div class="invalid-feedback" id="register-email-error"></div>
+          </div>
+          <button type="submit" class="btn btn-success">Register</button>
+          <button
+            type="button"
+            id="cancel-register-btn"
+            class="btn btn-secondary"
+          >
+            Cancel
+          </button>
+        </form>
+      </div>
+
+      <!-- Logged in user info -->
+      <div id="user-info" class="d-none">
+        <p>
+          Welcome, <span id="username"></span>!
+          <button id="logout-btn" class="btn btn-danger btn-sm">Logout</button>
+        </p>
+      </div>
+
+      <hr />
+
+      <!-- Book List -->
+      <h2>Books</h2>
+
+      <!-- Search and Filter Controls -->
+      <div class="row mb-3">
+        <div class="col-md-6">
+          <input
+            type="text"
+            class="form-control"
+            id="search-input"
+            placeholder="Search by title or author..."
+          />
+        </div>
+        <div class="col-md-3">
+          <select class="form-select" id="availability-filter">
+            <option value="">All Books</option>
+            <option value="true">Available Only</option>
+            <option value="false">Unavailable Only</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <button class="btn btn-secondary w-100" id="clear-filters-btn">
+            Clear Filters
+          </button>
+        </div>
+      </div>
+
+      <div id="book-list" class="row"></div>
+
+      <!-- Pagination Controls -->
+      <nav aria-label="Book pagination" id="pagination-container" class="mt-4">
+        <ul class="pagination justify-content-center" id="pagination"></ul>
+      </nav>
+
+      <hr />
+
+      <!-- My Loans -->
+      <div id="my-loans" class="d-none">
+        <h2>My Loans</h2>
+        <ul id="loan-list" class="list-group"></ul>
+      </div>
+    </div>
+
+    <script>
+      const API_URL = "http://127.0.0.1:8000/api";
+      let accessToken = null;
+      let refreshToken = null;
+      let currentUsername = null;
+
+      const authButtons = document.getElementById("auth-buttons");
+      const loginFormContainer = document.getElementById(
+        "login-form-container"
+      );
+      const registerFormContainer = document.getElementById(
+        "register-form-container"
+      );
+      const userInfo = document.getElementById("user-info");
+      const usernameSpan = document.getElementById("username");
+      const logoutBtn = document.getElementById("logout-btn");
+      const bookList = document.getElementById("book-list");
+      const myLoans = document.getElementById("my-loans");
+      const loanList = document.getElementById("loan-list");
+      const searchInput = document.getElementById("search-input");
+      const availabilityFilter = document.getElementById("availability-filter");
+      const clearFiltersBtn = document.getElementById("clear-filters-btn");
+      const paginationContainer = document.getElementById("pagination");
+
+      let currentPage = 1;
+      let searchQuery = "";
+      let availabilityFilterValue = "";
+
+      // Helper function to escape HTML and prevent XSS attacks
+      function escapeHtml(text) {
+        if (text == null) return "";
+        const map = {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;",
+        };
+        return String(text).replace(/[&<>"']/g, (m) => map[m]);
+      }
+
+      // Helper function to refresh access token
+      async function refreshAccessToken() {
+        if (!refreshToken) {
+          return false;
+        }
+
+        try {
+          const response = await fetch(`${API_URL}/token/refresh/`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ refresh: refreshToken }),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            accessToken = data.access;
+            localStorage.setItem("accessToken", accessToken);
+            return true;
+          }
+        } catch (error) {
+          console.error("Token refresh failed:", error);
+        }
+
+        return false;
+      }
+
+      // Helper function to make authenticated API calls with automatic token refresh
+      async function authenticatedFetch(url, options = {}) {
+        if (!accessToken) {
+          throw new Error("Not authenticated");
+        }
+
+        const headers = {
+          ...options.headers,
+          Authorization: `Bearer ${accessToken}`,
+        };
+
+        let response = await fetch(url, { ...options, headers });
+
+        // If token expired, try to refresh
+        if (response.status === 401 && refreshToken) {
+          const refreshed = await refreshAccessToken();
+          if (refreshed) {
+            // Retry the request with new token
+            headers.Authorization = `Bearer ${accessToken}`;
+            response = await fetch(url, { ...options, headers });
+          } else {
+            // Refresh failed, logout user
+            localStorage.removeItem("accessToken");
+            localStorage.removeItem("refreshToken");
+            localStorage.removeItem("username");
+            accessToken = null;
+            refreshToken = null;
+            currentUsername = null;
+            showLoggedOutView();
+            alert("Your session has expired. Please login again.");
+          }
+        }
+
+        return response;
+      }
+
+      document
+        .getElementById("show-login-btn")
+        .addEventListener("click", () => {
+          loginFormContainer.classList.remove("d-none");
+          registerFormContainer.classList.add("d-none");
+          authButtons.classList.add("d-none");
+        });
+
+      document
+        .getElementById("show-register-btn")
+        .addEventListener("click", () => {
+          loginFormContainer.classList.add("d-none");
+          registerFormContainer.classList.remove("d-none");
+          authButtons.classList.add("d-none");
+        });
+
+      document
+        .getElementById("cancel-login-btn")
+        .addEventListener("click", () => {
+          loginFormContainer.classList.add("d-none");
+          authButtons.classList.remove("d-none");
+        });
+
+      document
+        .getElementById("cancel-register-btn")
+        .addEventListener("click", () => {
+          registerFormContainer.classList.add("d-none");
+          authButtons.classList.remove("d-none");
+        });
+
+      // Login
+      document
+        .getElementById("login-form")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          clearFormErrors("login");
+
+          const username = document.getElementById("login-username").value;
+          const password = document.getElementById("login-password").value;
+
+          try {
+            const response = await fetch(`${API_URL}/token/`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ username, password }),
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              accessToken = data.access;
+              refreshToken = data.refresh || null;
+              currentUsername = username;
+
+              // Store tokens and username in localStorage
+              localStorage.setItem("accessToken", accessToken);
+              if (refreshToken) {
+                localStorage.setItem("refreshToken", refreshToken);
+              }
+              localStorage.setItem("username", username);
+
+              showLoggedInUser(username);
+              fetchMyLoans();
+              fetchBooks();
+            } else {
+              let errorData = {};
+              try {
+                errorData = await response.json();
+              } catch (e) {
+                errorData = {
+                  detail: `Login failed with status ${response.status}`,
+                };
+              }
+              displayFormErrors(errorData, "login");
+            }
+          } catch (error) {
+            displayFormErrors(
+              {
+                detail: "Network error. Please check your connection.",
+              },
+              "login"
+            );
+          }
+        });
+
+      // Generic error handling functions
+      function clearFormErrors(formType) {
+        const prefix = formType === "login" ? "login" : "register";
+        const errorContainer = document.getElementById(`${prefix}-errors`);
+        errorContainer.classList.add("d-none");
+        errorContainer.innerHTML = "";
+
+        const fields =
+          formType === "login"
+            ? ["username", "password"]
+            : ["username", "password", "email"];
+
+        fields.forEach((field) => {
+          const input = document.getElementById(`${prefix}-${field}`);
+          const errorDiv = document.getElementById(`${prefix}-${field}-error`);
+          if (input) input.classList.remove("is-invalid");
+          if (errorDiv) errorDiv.textContent = "";
+        });
+      }
+
+      function displayFormErrors(errors, formType) {
+        const prefix = formType === "login" ? "login" : "register";
+        const errorContainer = document.getElementById(`${prefix}-errors`);
+        let errorMessages = [];
+
+        if (errors.detail) {
+          errorMessages.push(errors.detail);
+        } else if (errors.non_field_errors) {
+          errorMessages.push(...errors.non_field_errors);
+        } else {
+          const fields =
+            formType === "login"
+              ? ["username", "password"]
+              : ["username", "password", "email"];
+
+          fields.forEach((field) => {
+            if (errors[field]) {
+              const input = document.getElementById(`${prefix}-${field}`);
+              const errorDiv = document.getElementById(
+                `${prefix}-${field}-error`
+              );
+              const message = Array.isArray(errors[field])
+                ? errors[field][0]
+                : errors[field];
+
+              if (input) input.classList.add("is-invalid");
+              if (errorDiv) errorDiv.textContent = message;
+              if (formType === "register") {
+                errorMessages.push(
+                  `${
+                    field.charAt(0).toUpperCase() + field.slice(1)
+                  }: ${message}`
+                );
+              }
+            }
+          });
+
+          // Add other field errors
+          for (const [field, messages] of Object.entries(errors)) {
+            if (!fields.includes(field) && field !== "non_field_errors") {
+              const message = Array.isArray(messages)
+                ? messages.join(", ")
+                : messages;
+              errorMessages.push(`${field}: ${message}`);
+            }
+          }
+        }
+
+        if (errorMessages.length > 0) {
+          const escapedMessages = errorMessages.map((msg) => escapeHtml(msg));
+          const errorTitle =
+            formType === "login" ? "Error" : "Registration Error";
+          errorContainer.innerHTML =
+            `<strong>${errorTitle}:</strong><br>` +
+            escapedMessages.join("<br>");
+          errorContainer.classList.remove("d-none");
+        }
+      }
+
+      // Register
+      document
+        .getElementById("register-form")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          clearFormErrors("register");
+
+          const username = document.getElementById("register-username").value;
+          const password = document.getElementById("register-password").value;
+          const email = document.getElementById("register-email").value;
+
+          try {
+            const response = await fetch(`${API_URL}/users/`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ username, password, email }),
+            });
+
+            if (response.ok) {
+              alert("Registration successful. Please login.");
+              registerFormContainer.classList.add("d-none");
+              loginFormContainer.classList.remove("d-none");
+              // Clear form
+              document.getElementById("register-form").reset();
+            } else {
+              let errorData = {};
+              try {
+                errorData = await response.json();
+              } catch (e) {
+                errorData = {
+                  detail: `Registration failed with status ${response.status}`,
+                };
+              }
+              displayFormErrors(errorData, "register");
+            }
+          } catch (error) {
+            displayFormErrors(
+              {
+                detail: "Network error. Please check your connection.",
+              },
+              "register"
+            );
+          }
+        });
+
+      // Logout
+      logoutBtn.addEventListener("click", () => {
+        accessToken = null;
+        refreshToken = null;
+        currentUsername = null;
+
+        // Clear localStorage
+        localStorage.removeItem("accessToken");
+        localStorage.removeItem("refreshToken");
+        localStorage.removeItem("username");
+
+        showLoggedOutView();
+        currentPage = 1;
+        searchQuery = "";
+        availabilityFilterValue = "";
+        searchInput.value = "";
+        availabilityFilter.value = "";
+        fetchBooks(1);
+      });
+
+      function showLoggedInUser(username) {
+        loginFormContainer.classList.add("d-none");
+        registerFormContainer.classList.add("d-none");
+        authButtons.classList.add("d-none");
+        userInfo.classList.remove("d-none");
+        // Use textContent instead of innerHTML to prevent XSS
+        usernameSpan.textContent = username;
+        myLoans.classList.remove("d-none");
+      }
+
+      function showLoggedOutView() {
+        authButtons.classList.remove("d-none");
+        userInfo.classList.add("d-none");
+        myLoans.classList.add("d-none");
+        loanList.innerHTML = "";
+      }
+
+      // Fetch and display books
+      async function fetchBooks(page = 1) {
+        try {
+          currentPage = page;
+
+          // Build query parameters
+          const params = new URLSearchParams();
+          params.append("page", page);
+
+          if (searchQuery) {
+            params.append("search", searchQuery);
+          }
+
+          if (availabilityFilterValue) {
+            params.append("availability", availabilityFilterValue);
+          }
+
+          const response = await fetch(
+            `${API_URL}/books/?${params.toString()}`
+          );
+          const data = await response.json();
+          bookList.innerHTML = "";
+
+          if (!data.results || data.results.length === 0) {
+            bookList.innerHTML =
+              '<div class="col-12"><p class="text-muted">No books found. Try adjusting your search or filters.</p></div>';
+            paginationContainer.innerHTML = "";
+            return;
+          }
+
+          data.results.forEach((book) => {
+            const bookCard = `
+                        <div class="col-md-4 mb-3">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">${escapeHtml(
+                                      book.title
+                                    )}</h5>
+                                    <h6 class="card-subtitle mb-2 text-muted">${escapeHtml(
+                                      book.author
+                                    )}</h6>
+                                    <p class="card-text">ISBN: ${escapeHtml(
+                                      book.isbn
+                                    )}</p>
+                                    ${
+                                      book.availability
+                                        ? `<button class="btn btn-primary borrow-btn" data-book-id="${escapeHtml(
+                                            book.id
+                                          )}" ${
+                                            !accessToken ? "disabled" : ""
+                                          }>Borrow</button>`
+                                        : '<p class="text-danger">Not Available</p>'
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    `;
+            bookList.innerHTML += bookCard;
+          });
+
+          // Add event listeners to borrow buttons
+          document.querySelectorAll(".borrow-btn").forEach((button) => {
+            button.addEventListener("click", () =>
+              borrowBook(button.dataset.bookId)
+            );
+          });
+
+          // Render pagination
+          renderPagination(data);
+        } catch (error) {
+          console.error("Error fetching books:", error);
+          bookList.innerHTML =
+            '<div class="col-12"><p class="text-danger">Error loading books. Please check if the server is running.</p></div>';
+          paginationContainer.innerHTML = "";
+        }
+      }
+
+      // Render pagination controls
+      function renderPagination(data) {
+        paginationContainer.innerHTML = "";
+
+        if (!data.next && !data.previous && data.count <= 10) {
+          return; // No pagination needed
+        }
+
+        const totalPages = Math.ceil(data.count / 10);
+        const currentPageNum = currentPage;
+
+        // Previous button
+        const prevLi = document.createElement("li");
+        prevLi.className = `page-item ${!data.previous ? "disabled" : ""}`;
+        prevLi.innerHTML = `<a class="page-link" href="#" ${
+          !data.previous ? 'tabindex="-1" aria-disabled="true"' : ""
+        }>Previous</a>`;
+        if (data.previous) {
+          prevLi.querySelector("a").addEventListener("click", (e) => {
+            e.preventDefault();
+            fetchBooks(currentPageNum - 1);
+          });
+        }
+        paginationContainer.appendChild(prevLi);
+
+        // Page numbers
+        const startPage = Math.max(1, currentPageNum - 2);
+        const endPage = Math.min(totalPages, currentPageNum + 2);
+
+        if (startPage > 1) {
+          const firstLi = document.createElement("li");
+          firstLi.className = "page-item";
+          firstLi.innerHTML = `<a class="page-link" href="#">1</a>`;
+          firstLi.querySelector("a").addEventListener("click", (e) => {
+            e.preventDefault();
+            fetchBooks(1);
+          });
+          paginationContainer.appendChild(firstLi);
+
+          if (startPage > 2) {
+            const ellipsisLi = document.createElement("li");
+            ellipsisLi.className = "page-item disabled";
+            ellipsisLi.innerHTML = `<span class="page-link">...</span>`;
+            paginationContainer.appendChild(ellipsisLi);
+          }
+        }
+
+        for (let i = startPage; i <= endPage; i++) {
+          const pageLi = document.createElement("li");
+          pageLi.className = `page-item ${
+            i === currentPageNum ? "active" : ""
+          }`;
+          pageLi.innerHTML = `<a class="page-link" href="#">${i}</a>`;
+          pageLi.querySelector("a").addEventListener("click", (e) => {
+            e.preventDefault();
+            fetchBooks(i);
+          });
+          paginationContainer.appendChild(pageLi);
+        }
+
+        if (endPage < totalPages) {
+          if (endPage < totalPages - 1) {
+            const ellipsisLi = document.createElement("li");
+            ellipsisLi.className = "page-item disabled";
+            ellipsisLi.innerHTML = `<span class="page-link">...</span>`;
+            paginationContainer.appendChild(ellipsisLi);
+          }
+
+          const lastLi = document.createElement("li");
+          lastLi.className = "page-item";
+          lastLi.innerHTML = `<a class="page-link" href="#">${totalPages}</a>`;
+          lastLi.querySelector("a").addEventListener("click", (e) => {
+            e.preventDefault();
+            fetchBooks(totalPages);
+          });
+          paginationContainer.appendChild(lastLi);
+        }
+
+        // Next button
+        const nextLi = document.createElement("li");
+        nextLi.className = `page-item ${!data.next ? "disabled" : ""}`;
+        nextLi.innerHTML = `<a class="page-link" href="#" ${
+          !data.next ? 'tabindex="-1" aria-disabled="true"' : ""
+        }>Next</a>`;
+        if (data.next) {
+          nextLi.querySelector("a").addEventListener("click", (e) => {
+            e.preventDefault();
+            fetchBooks(currentPageNum + 1);
+          });
+        }
+        paginationContainer.appendChild(nextLi);
+      }
+
+      // Search input handler with debounce
+      let searchTimeout;
+      searchInput.addEventListener("input", (e) => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          searchQuery = e.target.value.trim();
+          currentPage = 1;
+          fetchBooks(1);
+        }, 500); // Wait 500ms after user stops typing
+      });
+
+      // Availability filter handler
+      availabilityFilter.addEventListener("change", (e) => {
+        availabilityFilterValue = e.target.value;
+        currentPage = 1;
+        fetchBooks(1);
+      });
+
+      // Clear filters button
+      clearFiltersBtn.addEventListener("click", () => {
+        searchInput.value = "";
+        availabilityFilter.value = "";
+        searchQuery = "";
+        availabilityFilterValue = "";
+        currentPage = 1;
+        fetchBooks(1);
+      });
+
+      // Borrow a book
+      async function borrowBook(bookId) {
+        const dueDate = new Date();
+        dueDate.setDate(dueDate.getDate() + 14); // 2 week loan
+
+        try {
+          const response = await authenticatedFetch(`${API_URL}/loans/`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              book: bookId,
+              due_date: dueDate.toISOString().split("T")[0],
+            }),
+          });
+
+          if (response.ok) {
+            fetchBooks(currentPage);
+            fetchMyLoans();
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            alert(errorData.detail || "Failed to borrow book");
+          }
+        } catch (error) {
+          alert("Failed to borrow book. Please try again.");
+        }
+      }
+
+      // Fetch user's loans
+      async function fetchMyLoans() {
+        if (!accessToken) return;
+
+        try {
+          const response = await authenticatedFetch(`${API_URL}/loans/`);
+          const data = await response.json();
+          loanList.innerHTML = "";
+          data.results.forEach((loan) => {
+            const loanItem = `
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        ${escapeHtml(loan.book_title)}
+                        <button class="btn btn-warning btn-sm return-btn" data-loan-id="${escapeHtml(
+                          loan.id
+                        )}">Return</button>
+                    </li>
+                `;
+            loanList.innerHTML += loanItem;
+          });
+
+          // Add event listeners to return buttons
+          document.querySelectorAll(".return-btn").forEach((button) => {
+            button.addEventListener("click", () =>
+              returnBook(button.dataset.loanId)
+            );
+          });
+        } catch (error) {
+          console.error("Error fetching loans:", error);
+        }
+      }
+
+      // Return a book
+      async function returnBook(loanId) {
+        try {
+          const response = await authenticatedFetch(
+            `${API_URL}/loans/${loanId}/return_book/`,
+            {
+              method: "POST",
+            }
+          );
+
+          if (response.ok) {
+            fetchBooks(currentPage);
+            fetchMyLoans();
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            alert(errorData.detail || "Failed to return book");
+          }
+        } catch (error) {
+          alert("Failed to return book. Please try again.");
+        }
+      }
+
+      // Check if user is already logged in (on page load)
+      async function checkAuthStatus() {
+        const storedToken = localStorage.getItem("accessToken");
+        const storedUsername = localStorage.getItem("username");
+
+        if (storedToken && storedUsername) {
+          accessToken = storedToken;
+          refreshToken = localStorage.getItem("refreshToken");
+          currentUsername = storedUsername;
+
+          // Verify token is still valid by fetching loans (which requires auth)
+          try {
+            const response = await fetch(`${API_URL}/loans/`, {
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+              },
+            });
+
+            if (response.ok) {
+              // Token is valid, restore logged-in state
+              showLoggedInUser(storedUsername);
+              fetchMyLoans();
+              fetchBooks();
+              return;
+            } else if (response.status === 401) {
+              // Token expired, try to refresh if we have refresh token
+              if (refreshToken) {
+                try {
+                  const refreshResponse = await fetch(
+                    `${API_URL}/token/refresh/`,
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify({ refresh: refreshToken }),
+                    }
+                  );
+
+                  if (refreshResponse.ok) {
+                    const data = await refreshResponse.json();
+                    accessToken = data.access;
+                    localStorage.setItem("accessToken", accessToken);
+                    showLoggedInUser(storedUsername);
+                    fetchMyLoans();
+                    fetchBooks();
+                    return;
+                  }
+                } catch (e) {
+                  console.error("Token refresh failed:", e);
+                }
+              }
+
+              // Refresh failed or no refresh token, clear storage and show logged out
+              localStorage.removeItem("accessToken");
+              localStorage.removeItem("refreshToken");
+              localStorage.removeItem("username");
+              accessToken = null;
+              refreshToken = null;
+              currentUsername = null;
+              showLoggedOutView();
+              fetchBooks();
+              return;
+            } else {
+              // Other error, clear storage and show logged out
+              localStorage.removeItem("accessToken");
+              localStorage.removeItem("refreshToken");
+              localStorage.removeItem("username");
+              accessToken = null;
+              refreshToken = null;
+              currentUsername = null;
+              showLoggedOutView();
+              fetchBooks();
+              return;
+            }
+          } catch (error) {
+            console.error("Auth check failed:", error);
+            // On network error, still try to restore state (might be offline)
+            if (storedUsername) {
+              showLoggedInUser(storedUsername);
+              fetchBooks();
+            } else {
+              showLoggedOutView();
+              fetchBooks();
+            }
+            return;
+          }
+        }
+
+        // No stored token, show logged out view
+        showLoggedOutView();
+        fetchBooks();
+      }
+
+      // Initial fetch and auth check
+      checkAuthStatus();
+    </script>
+  </body>
+</html>
